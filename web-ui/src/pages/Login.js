@@ -24,8 +24,8 @@ const Login = () => {
         <div className="min-h-screen bg-thunder-900 flex items-center justify-center p-4">
             <div className="bg-thunder-800 p-8 rounded-xl shadow-2xl border border-thunder-700 w-full max-w-md">
                 <div className="flex flex-col items-center mb-8">
-                    <div className="w-16 h-16 bg-thunder-700 rounded-full flex items-center justify-center mb-4">
-                        <Activity className="w-8 h-8 text-thunder-accent" />
+                    <div className="mb-6">
+                        <img src="/logo.png" alt="ThunderX Logo" className="h-12 w-auto" />
                     </div>
                     <h1 className="text-2xl font-bold text-white">Welcome Back</h1>
                     <p className="text-slate-400">Sign in to ThunderX Console</p>

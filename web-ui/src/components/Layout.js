@@ -17,8 +17,7 @@ const Layout = () => {
             {/* Sidebar */}
             <aside className="w-64 border-r border-thunder-700 bg-thunder-800 flex flex-col">
                 <div className="h-16 flex items-center px-6 border-b border-thunder-700">
-                    <Activity className="w-8 h-8 text-thunder-accent mr-3" />
-                    <span className="text-xl font-bold text-white tracking-wide">ThunderX</span>
+                    <img src="/logo.png" alt="ThunderX Logo" className="h-8 w-auto mr-3" />
                 </div>
 
                 <nav className="flex-1 px-4 py-6 space-y-2">
