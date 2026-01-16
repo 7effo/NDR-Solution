@@ -1,0 +1,33 @@
+id: "ssh_brute_force"
+name: "SSH Brute Force Attempt"
+description: "Detects multiple failed SSH login attempts from a single IP address"
+severity: "high"
+index: "zeek-conn-*"
+lookback_minutes: 5
+
+# OpenSearch Query DSL to filter events
+query_dsl:
+  bool:
+    must:
+      - term:
+          params.service: "ssh"
+      # In Zeek conn.log, failed auth might be inferred or we use noticed.log
+      # For demo, assuming we look for high distinct dest ports or specific patterns
+      # Or just 'conn_state' not being 'SF' (Success)
+      - bool:
+          must_not:
+            - term: 
+                conn_state: "SF"
+
+# Aggregation to group by Source IP
+aggregations:
+  by_src_ip:
+    terms:
+      field: "id.orig_h" # Zeek source IP
+      min_doc_count: 5
+
+# Condition to trigger alert
+condition:
+  type: "count_greater_than"
+  threshold: 5
+  agg_field: "by_src_ip"

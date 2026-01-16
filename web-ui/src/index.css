@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-thunder-900 text-slate-50 font-sans;
+}
+
+.card {
+  @apply bg-thunder-800 border border-thunder-700 rounded-lg p-6 shadow-lg;
+}
+
+.input {
+  @apply bg-thunder-900 border border-thunder-700 rounded px-3 py-2 text-white focus:border-thunder-accent focus:outline-none;
+}
+
+.btn {
+  @apply px-4 py-2 rounded font-medium transition-colors;
+}
+
+.btn-primary {
+  @apply bg-thunder-accent hover:bg-blue-600 text-white;
+}
+
+.btn-danger {
+  @apply bg-thunder-danger hover:bg-red-600 text-white;
+}

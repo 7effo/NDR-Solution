@@ -1,0 +1,426 @@
+version: '3.8'
+
+# ThunderX NDR - Standalone Deployment
+# This compose file deploys all ThunderX components on a single host
+
+services:
+  # ==========================================================================
+  # OPENSEARCH CLUSTER
+  # ==========================================================================
+  opensearch-node1:
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-3.0.0}
+    container_name: thunderx-opensearch-node1
+    environment:
+      - cluster.name=${OPENSEARCH_CLUSTER_NAME:-thunderx-cluster}
+      - node.name=${OPENSEARCH_NODE_NAME:-thunderx-node-01}
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS:--Xms4g -Xmx4g}"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - plugins.security.ssl.http.enabled=true
+      - plugins.security.ssl.transport.enabled=true
+      # MCP Server configuration
+      - mcp.enabled=${OPENSEARCH_MCP_ENABLED:-true}
+      - mcp.port=${OPENSEARCH_MCP_PORT:-3000}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data1:/usr/share/opensearch/data
+      - ./opensearch/config/opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
+      - ./opensearch/config/jvm.options:/usr/share/opensearch/config/jvm.options:ro
+      - ./opensearch/certs:/usr/share/opensearch/config/certificates:ro
+    ports:
+      - "${OPENSEARCH_HTTP_PORT:-9200}:9200"
+      - "${OPENSEARCH_TRANSPORT_PORT:-9300}:9300"
+      - "${OPENSEARCH_MCP_PORT:-3000}:3000" # MCP Server
+    networks:
+      - thunderx-backend
+    deploy:
+      resources:
+        limits:
+          memory: ${OPENSEARCH_MEM_LIMIT:-8g}
+          cpus: '${OPENSEARCH_CPU_LIMIT:-4}'
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -k -u admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD} https://localhost:9200/_cluster/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ==========================================================================
+  # OPENSEARCH DASHBOARDS
+  # ==========================================================================
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:${OPENSEARCH_VERSION:-3.0.0}
+    container_name: thunderx-opensearch-dashboards
+    environment:
+      - OPENSEARCH_HOSTS=["https://opensearch-node1:9200"]
+      - OPENSEARCH_USERNAME=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - SERVER_SSL_ENABLED=true
+      - SERVER_SSL_CERTIFICATE=/usr/share/opensearch-dashboards/config/certificates/cert.pem
+      - SERVER_SSL_KEY=/usr/share/opensearch-dashboards/config/certificates/key.pem
+    volumes:
+      - ./opensearch/dashboards-config/opensearch_dashboards.yml:/usr/share/opensearch-dashboards/config/opensearch_dashboards.yml:ro
+      - ./opensearch/certs:/usr/share/opensearch-dashboards/config/certificates:ro
+    ports:
+      - "5601:5601"
+    networks:
+      - thunderx-backend
+    depends_on:
+      opensearch-node1:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -k https://localhost:5601/api/status || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ==========================================================================
+  # ZEEK - Network Analysis
+  # ==========================================================================
+  zeek:
+    build:
+      context: ./zeek
+      dockerfile: Dockerfile
+    container_name: thunderx-zeek
+    environment:
+      - ZEEK_INTERFACE=${ZEEK_INTERFACE:-eth0}
+      - ZEEK_CLUSTER_ID=${ZEEK_CLUSTER_ID:-thunderx}
+      - OPENSEARCH_HOST=opensearch-node1:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes:
+      - ./zeek/scripts:/usr/local/zeek/share/zeek/site/scripts:ro
+      - ./zeek/config/local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro
+      - zeek-logs:/var/log/zeek
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      opensearch-node1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${ZEEK_MEM_LIMIT:-2g}
+          cpus: '${ZEEK_CPU_LIMIT:-2}'
+    restart: unless-stopped
+
+  # ==========================================================================
+  # SURICATA - Intrusion Detection
+  # ==========================================================================
+  suricata:
+    build:
+      context: ./suricata
+      dockerfile: Dockerfile
+    container_name: thunderx-suricata
+    environment:
+      - SURICATA_INTERFACE=${SURICATA_INTERFACE:-eth0}
+      - HOME_NET=${SURICATA_HOME_NET:-192.168.0.0/16,10.0.0.0/8,172.16.0.0/12}
+      - EXTERNAL_NET=${SURICATA_EXTERNAL_NET:-!$HOME_NET}
+      - OPENSEARCH_HOST=opensearch-node1:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes:
+      - ./suricata/config:/etc/suricata:ro
+      - ./suricata/rules:/var/lib/suricata/rules
+      - suricata-logs:/var/log/suricata
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    depends_on:
+      opensearch-node1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${SURICATA_MEM_LIMIT:-2g}
+          cpus: '${SURICATA_CPU_LIMIT:-2}'
+    restart: unless-stopped
+
+  # ==========================================================================
+  # ARKIME - Full Packet Capture
+  # ==========================================================================
+  arkime:
+    build:
+      context: ./arkime
+      dockerfile: Dockerfile
+    container_name: thunderx-arkime
+    environment:
+      - ARKIME_INTERFACE=${ARKIME_INTERFACE:-eth0}
+      - OPENSEARCH_URL=https://opensearch-node1:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - ARKIME_ADMIN_PASSWORD=${ARKIME_ADMIN_PASSWORD}
+    volumes:
+      - ./arkime/config:/data/config:ro
+      - arkime-pcap:/data/pcap
+      - arkime-logs:/data/logs
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      opensearch-node1:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${ARKIME_MEM_LIMIT:-4g}
+          cpus: '${ARKIME_CPU_LIMIT:-2}'
+    restart: unless-stopped
+
+  # ==========================================================================
+  # MCP AI SERVICE
+  # ==========================================================================
+  mcp-ai-service:
+    build:
+      context: ./mcp-ai-service
+      dockerfile: Dockerfile
+    container_name: thunderx-mcp-ai
+    environment:
+      - OPENSEARCH_HOST=opensearch-node1
+      - OPENSEARCH_PORT=9200
+      - OPENSEARCH_MCP_PORT=3000
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - MCP_AI_MODEL=${MCP_AI_MODEL:-gpt-4}
+      - MCP_AI_TEMPERATURE=${MCP_AI_TEMPERATURE:-0.3}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./mcp-ai-service/config:/app/config:ro
+      - mcp-ai-data:/app/data
+    ports:
+      - "${MCP_AI_SERVICE_PORT:-5000}:5000"
+    networks:
+      - thunderx-backend
+    depends_on:
+      opensearch-node1:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================================================
+  # THREAT INTELLIGENCE SERVICE
+  # ==========================================================================
+  threat-intel:
+    build:
+      context: ./threat-intel
+      dockerfile: Dockerfile
+    container_name: thunderx-threat-intel
+    environment:
+      - OPENSEARCH_HOST=opensearch-node1:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - THREAT_INTEL_FEEDS=${THREAT_INTEL_FEEDS:-threatfox,abuseipdb}
+      - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY:-}
+      - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY:-}
+      - UPDATE_INTERVAL=${THREAT_INTEL_UPDATE_INTERVAL:-3600}
+    volumes:
+      - ./threat-intel/config:/app/config:ro
+      - threat-intel-data:/app/data
+    networks:
+      - thunderx-backend
+    depends_on:
+      - postgres
+      - opensearch-node1
+    restart: unless-stopped
+
+  # ==========================================================================
+  # ALERT MANAGER
+  # ==========================================================================
+  alert-manager:
+    build:
+      context: ./alert-manager
+      dockerfile: Dockerfile
+    container_name: thunderx-alert-manager
+    environment:
+      - OPENSEARCH_HOST=opensearch-node1:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - CORRELATION_ENABLED=${ALERT_CORRELATION_ENABLED:-true}
+      - CORRELATION_WINDOW=${ALERT_CORRELATION_WINDOW:-300}
+      - NOTIFICATIONS_ENABLED=${ALERT_NOTIFICATIONS_ENABLED:-true}
+      - EMAIL_ENABLED=${ALERT_EMAIL_ENABLED:-false}
+      - SLACK_ENABLED=${ALERT_SLACK_ENABLED:-false}
+      - SLACK_WEBHOOK=${ALERT_SLACK_WEBHOOK_URL:-}
+    volumes:
+      - ./alert-manager/config:/app/config:ro
+    ports:
+      - "${ALERT_MANAGER_PORT:-6000}:6000"
+    networks:
+      - thunderx-backend
+    depends_on:
+      - postgres
+      - opensearch-node1
+      - mcp-ai-service
+    restart: unless-stopped
+
+  # ==========================================================================
+  # LOG SHIPPER (Filebeat)
+  # ==========================================================================
+  log-shipper:
+    image: docker.elastic.co/beats/filebeat:8.10.2
+    container_name: thunderx-log-shipper
+    user: root
+    environment:
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes:
+      - ./log-shipper/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - zeek-logs:/var/log/zeek:ro
+      - suricata-logs:/var/log/suricata:ro
+    networks:
+      - thunderx-backend
+    depends_on:
+      opensearch-node1:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================================================
+  # API GATEWAY
+  # ==========================================================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: thunderx-api-gateway
+    environment:
+      - OPENSEARCH_HOST=opensearch-node1:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - MCP_AI_SERVICE_URL=http://mcp-ai-service:5000
+      - ALERT_MANAGER_URL=http://alert-manager:6000
+      - SECRET_KEY=${API_SECRET_KEY}
+      - ALGORITHM=${API_ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${API_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+    volumes:
+      - ./api-gateway/config:/app/config:ro
+    ports:
+      - "${API_PORT:-8080}:8080"
+    networks:
+      - thunderx-backend
+    depends_on:
+      - postgres
+      - opensearch-node1
+      - mcp-ai-service
+      - alert-manager
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================================================================
+  # WEB UI
+  # ==========================================================================
+  web-ui:
+    build:
+      context: ./web-ui
+      dockerfile: Dockerfile
+    container_name: thunderx-web-ui
+    environment:
+      - API_URL=http://api-gateway:8080
+      - OPENSEARCH_DASHBOARDS_URL=https://opensearch-dashboards:5601
+    volumes:
+      - ./web-ui/config:/app/config:ro
+    networks:
+      - thunderx-backend
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+  # ==========================================================================
+  # NGINX REVERSE PROXY
+  # ==========================================================================
+  nginx:
+    image: nginx:${NGINX_VERSION:-1.25-alpine}
+    container_name: thunderx-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    ports:
+      - "${WEB_UI_HTTP_PORT:-80}:80"
+      - "${WEB_UI_PORT:-443}:443"
+    networks:
+      - thunderx-backend
+    depends_on:
+      - web-ui
+      - opensearch-dashboards
+      - api-gateway
+    restart: unless-stopped
+
+  # ==========================================================================
+  # POSTGRESQL - Metadata & Case Management
+  # ==========================================================================
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-16}-alpine
+    container_name: thunderx-postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-thunderx}
+      - POSTGRES_USER=${POSTGRES_USER:-thunderx}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - thunderx-backend
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thunderx}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  thunderx-backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  opensearch-data1:
+    driver: local
+  postgres-data:
+    driver: local
+  zeek-logs:
+    driver: local
+  suricata-logs:
+    driver: local
+  arkime-pcap:
+    driver: local
+  arkime-logs:
+    driver: local
+  mcp-ai-data:
+    driver: local
+  threat-intel-data:
+    driver: local

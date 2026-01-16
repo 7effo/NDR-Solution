@@ -1,0 +1,119 @@
+# ======================== OpenSearch Configuration =========================
+#
+# NOTE: OpenSearch comes with reasonable defaults for most settings.
+#       Before you set out to tweak and tune the configuration, make sure you
+#       understand what are you trying to accomplish and the consequences.
+#
+# ---------------------------------- Cluster -----------------------------------
+
+cluster.name: ${OPENSEARCH_CLUSTER_NAME}
+node.name: ${OPENSEARCH_NODE_NAME}
+
+# ------------------------------------ Node ------------------------------------
+
+node.roles: [master, data, ingest]
+
+# ----------------------------------- Paths ------------------------------------
+
+path.data: /usr/share/opensearch/data
+path.logs: /usr/share/opensearch/logs
+
+# ---------------------------------- Network -----------------------------------
+
+network.host: ${OPENSEARCH_NETWORK_HOST}
+http.port: ${OPENSEARCH_HTTP_PORT}
+transport.port: ${OPENSEARCH_TRANSPORT_PORT}
+
+# --------------------------------- Discovery ----------------------------------
+
+discovery.type: ${DISCOVERY_TYPE}
+discovery.seed_hosts: []
+cluster.initial_master_nodes: [${OPENSEARCH_NODE_NAME}]
+
+# ---------------------------------- Security ----------------------------------
+
+plugins.security.ssl.transport.pemcert_filepath: certificates/cert.pem
+plugins.security.ssl.transport.pemkey_filepath: certificates/key.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: certificates/ca.pem
+plugins.security.ssl.transport.enforce_hostname_verification: false
+
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemcert_filepath: certificates/cert.pem
+plugins.security.ssl.http.pemkey_filepath: certificates/key.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: certificates/ca.pem
+
+plugins.security.allow_default_init_securityindex: true
+plugins.security.authcz.admin_dn:
+  - CN=admin,OU=ThunderX,O=ThunderX,L=Test,C=US
+
+plugins.security.nodes_dn:
+  - CN=*.thunderx.local,OU=ThunderX,O=ThunderX,L=Test,C=US
+  - CN=opensearch-node*,OU=ThunderX,O=ThunderX,L=Test,C=US
+
+plugins.security.audit.type: internal_opensearch
+plugins.security.enable_snapshot_restore_privilege: true
+plugins.security.check_snapshot_restore_write_privileges: true
+plugins.security.restapi.roles_enabled: ["all_access", "security_rest_api_access"]
+
+# ----------------------------------- MCP Server -------------------------------
+
+# Enable MCP (Model Context Protocol) Server
+mcp.enabled: ${OPENSEARCH_MCP_ENABLED}
+mcp.port: ${OPENSEARCH_MCP_PORT}
+mcp.host: 0.0.0.0
+
+# MCP Security
+mcp.security.enabled: true
+mcp.security.allow_origins: ["*"]
+
+# MCP Features
+mcp.features.search: true
+mcp.features.aggregations: true
+mcp.features.query_dsl: true
+mcp.features.index_management: false  # Disable for security
+
+# MCP Rate Limiting
+mcp.rate_limit.enabled: true
+mcp.rate_limit.requests_per_minute: 60
+
+# ----------------------------------- Index Templates --------------------------
+
+# Index lifecycle management
+indices.lifecycle.history_index_enabled: true
+
+# ----------------------------------- Performance ------------------------------
+
+# Thread pools
+thread_pool.write.queue_size: 1000
+thread_pool.search.queue_size: 1000
+
+# Index settings
+indices.memory.index_buffer_size: 20%
+indices.queries.cache.size: 15%
+
+# Circuit breakers
+indices.breaker.total.limit: 95%
+indices.breaker.request.limit: 60%
+indices.breaker.fielddata.limit: 40%
+
+# ----------------------------------- Index Retention --------------------------
+
+# Automatic index deletion based on age (ISM policies will be created via API)
+action.auto_create_index: true
+
+# ----------------------------------- Monitoring -------------------------------
+
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+http.cors.allow-headers: "X-Requested-With, Content-Type, Content-Length, Authorization"
+
+# ----------------------------------- Custom Settings --------------------------
+
+# Increase max result window for large queries
+index.max_result_window: 100000
+
+# Enable async search
+search.max_async_search_response_size: 10mb
+
+# Enable field data on text fields (use carefully)
+indices.fielddata.cache.size: 20%

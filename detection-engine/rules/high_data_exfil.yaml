@@ -1,0 +1,26 @@
+id: "high_data_exfil"
+name: "Potential Data Exfiltration"
+description: "Detects high volume outbound traffic from a single internal host"
+severity: "medium"
+index: "zeek-conn-*"
+lookback_minutes: 10
+
+query_dsl:
+  bool:
+    must:
+      # Outbound traffic (assuming private IP range internal)
+      # This is simplified. Real rules use cidr filters.
+      - range:
+          orig_bytes: 
+             gte: 100000000 # 100MB
+
+aggregations:
+  by_src_ip:
+    terms:
+      field: "id.orig_h"
+      min_doc_count: 1
+
+condition:
+  type: "count_greater_than"
+  threshold: 1 # If even one connection > 100MB
+  agg_field: "by_src_ip"

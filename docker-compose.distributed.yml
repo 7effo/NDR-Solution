@@ -1,0 +1,145 @@
+version: '3.8'
+
+# ThunderX NDR - Distributed Sensor Node
+# Deploy this on sensor nodes that forward data to the management node
+
+services:
+  # ==========================================================================
+  # ZEEK - Network Analysis
+  # ==========================================================================
+  zeek:
+    build:
+      context: ./zeek
+      dockerfile: Dockerfile
+    container_name: thunderx-sensor-zeek
+    environment:
+      - ZEEK_INTERFACE=${ZEEK_INTERFACE:-eth0}
+      - ZEEK_CLUSTER_ID=${ZEEK_CLUSTER_ID:-thunderx}
+      - SENSOR_NAME=${SENSOR_NODE_NAME:-sensor-01}
+      - SENSOR_LOCATION=${SENSOR_NODE_LOCATION:-datacenter-1}
+      - MANAGER_HOST=${MANAGER_NODE_IP}
+      - OPENSEARCH_HOST=${MANAGER_NODE_IP}:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes:
+      - ./zeek/scripts:/usr/local/zeek/share/zeek/site/scripts:ro
+      - ./zeek/config:/etc/zeek:ro
+      - zeek-logs:/var/log/zeek
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    deploy:
+      resources:
+        limits:
+          memory: ${ZEEK_MEM_LIMIT:-2g}
+          cpus: '${ZEEK_CPU_LIMIT:-2}'
+    restart: unless-stopped
+
+  # ==========================================================================
+  # SURICATA - Intrusion Detection
+  # ==========================================================================
+  suricata:
+    build:
+      context: ./suricata
+      dockerfile: Dockerfile
+    container_name: thunderx-sensor-suricata
+    environment:
+      - SURICATA_INTERFACE=${SURICATA_INTERFACE:-eth0}
+      - HOME_NET=${SURICATA_HOME_NET:-192.168.0.0/16,10.0.0.0/8,172.16.0.0/12}
+      - EXTERNAL_NET=${SURICATA_EXTERNAL_NET:-!$HOME_NET}
+      - SENSOR_NAME=${SENSOR_NODE_NAME:-sensor-01}
+      - MANAGER_HOST=${MANAGER_NODE_IP}
+      - OPENSEARCH_HOST=${MANAGER_NODE_IP}:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes:
+      - ./suricata/config:/etc/suricata:ro
+      - ./suricata/rules:/var/lib/suricata/rules
+      - suricata-logs:/var/log/suricata
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    deploy:
+      resources:
+        limits:
+          memory: ${SURICATA_MEM_LIMIT:-2g}
+          cpus: '${SURICATA_CPU_LIMIT:-2}'
+    restart: unless-stopped
+
+  # ==========================================================================
+  # ARKIME - Full Packet Capture
+  # ==========================================================================
+  arkime:
+    build:
+      context: ./arkime
+      dockerfile: Dockerfile
+    container_name: thunderx-sensor-arkime
+    environment:
+      - ARKIME_INTERFACE=${ARKIME_INTERFACE:-eth0}
+      - SENSOR_NAME=${SENSOR_NODE_NAME:-sensor-01}
+      - OPENSEARCH_URL=https://${MANAGER_NODE_IP}:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes:
+      - ./arkime/config:/data/config:ro
+      - arkime-pcap:/data/pcap
+      - arkime-logs:/data/logs
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    deploy:
+      resources:
+        limits:
+          memory: ${ARKIME_MEM_LIMIT:-4g}
+          cpus: '${ARKIME_CPU_LIMIT:-2}'
+    restart: unless-stopped
+
+  # ==========================================================================
+  # FILEBEAT - Log Forwarding to Manager
+  # ==========================================================================
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.0
+    container_name: thunderx-sensor-filebeat
+    user: root
+    environment:
+      - SENSOR_NAME=${SENSOR_NODE_NAME:-sensor-01}
+      - MANAGER_HOST=${MANAGER_NODE_IP}
+      - OPENSEARCH_HOST=${MANAGER_NODE_IP}:9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - zeek-logs:/var/log/zeek:ro
+      - suricata-logs:/var/log/suricata:ro
+      - arkime-logs:/var/log/arkime:ro
+      - filebeat-data:/usr/share/filebeat/data
+    command: filebeat -e -strict.perms=false
+    networks:
+      - thunderx-sensor
+    restart: unless-stopped
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  thunderx-sensor:
+    driver: bridge
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  zeek-logs:
+    driver: local
+  suricata-logs:
+    driver: local
+  arkime-pcap:
+    driver: local
+  arkime-logs:
+    driver: local
+  filebeat-data:
+    driver: local

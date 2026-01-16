@@ -1,0 +1,218 @@
+%YAML 1.1
+---
+
+# Suricata configuration for ThunderX NDR
+
+# Global stats
+stats:
+  enabled: yes
+  interval: 30
+
+# Logging outputs
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert:
+            metadata: yes
+            tagged-packets: yes
+        - anomaly:
+            enabled: yes
+        - http:
+            extended: yes
+        - dns:
+            version: 2
+        - tls:
+            extended: yes
+        - files:
+            force-magic: yes
+        - smtp:
+        - ssh
+        - stats:
+            totals: yes
+            threads: yes
+        - flow
+        - netflow
+
+# Application layer protocols
+app-layer:
+  protocols:
+    tls:
+      enabled: yes
+      detection-ports:
+        dp: 443
+    http:
+      enabled: yes
+      memcap: 256mb
+    dns:
+      tcp:
+        enabled: yes
+      udp:
+        enabled: yes
+    ssh:
+      enabled: yes
+    smtp:
+      enabled: yes
+      mime:
+        decode-mime: yes
+        decode-base64: yes
+        decode-quoted-printable: yes
+
+# Packet acquisition
+af-packet:
+  - interface: ${SURICATA_INTERFACE}
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+    use-mmap: yes
+    tpacket-v3: yes
+
+# Threading
+threading:
+  set-cpu-affinity: no
+  cpu-affinity:
+    - management-cpu-set:
+        cpu: [ "0" ]
+    - receive-cpu-set:
+        cpu: [ "0" ]
+    - worker-cpu-set:
+        cpu: [ "all" ]
+  detect-thread-ratio: 1.0
+
+# Detection engine
+detect-engine:
+  - profile: medium
+  - sgh-mpm-context: auto
+  - inspection-recursion-limit: 3000
+
+# Rule files
+default-rule-path: /var/lib/suricata/rules
+
+rule-files:
+  - suricata.rules
+  - local.rules
+
+# Home and external networks
+vars:
+  address-groups:
+    HOME_NET: "${HOME_NET}"
+    EXTERNAL_NET: "${EXTERNAL_NET}"
+    
+    HTTP_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    SQL_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$HOME_NET"
+    TELNET_SERVERS: "$HOME_NET"
+    AIM_SERVERS: "$EXTERNAL_NET"
+    DC_SERVERS: "$HOME_NET"
+    DNP3_SERVER: "$HOME_NET"
+    DNP3_CLIENT: "$HOME_NET"
+    MODBUS_CLIENT: "$HOME_NET"
+    MODBUS_SERVER: "$HOME_NET"
+    ENIP_CLIENT: "$HOME_NET"
+    ENIP_SERVER: "$HOME_NET"
+
+  port-groups:
+    HTTP_PORTS: "80"
+    SHELLCODE_PORTS: "!80"
+    ORACLE_PORTS: 1521
+    SSH_PORTS: 22
+    DNP3_PORTS: 20000
+    MODBUS_PORTS: 502
+    FILE_DATA_PORTS: "[$HTTP_PORTS,110,143]"
+    FTP_PORTS: 21
+    VXLAN_PORTS: 4789
+    TEREDO_PORTS: 3544
+
+# Stream settings
+stream:
+  memcap: 512mb
+  checksum-validation: yes
+  inline: auto
+  reassembly:
+    memcap: 512mb
+    depth: 1mb
+    toserver-chunk-size: 2560
+    toclient-chunk-size: 2560
+
+# Host table
+host:
+  hash-size: 4096
+  prealloc: 1000
+  memcap: 128mb
+
+# Flow settings
+flow:
+  memcap: 512mb
+  hash-size: 65536
+  prealloc: 10000
+  emergency-recovery: 30
+
+# Defragmentation
+defrag:
+  memcap: 256mb
+  hash-size: 65536
+  trackers: 65535
+  max-frags: 65535
+  prealloc: yes
+  timeout: 60
+
+# Performance tuning
+flow-timeouts:
+  default:
+    new: 30
+    established: 300
+    closed: 0
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-closed: 0
+    emergency-bypassed: 50
+  tcp:
+    new: 60
+    established: 600
+    closed: 60
+    bypassed: 100
+    emergency-new: 5
+    emergency-established: 100
+    emergency-closed: 10
+    emergency-bypassed: 50
+  udp:
+    new: 30
+    established: 300
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-bypassed: 50
+  icmp:
+    new: 30
+    established: 300
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-bypassed: 50
+
+# Logging
+logging:
+  default-log-level: info
+  outputs:
+    - console:
+        enabled: yes
+    - file:
+        enabled: yes
+        level: info
+        filename: suricata.log
+    - syslog:
+        enabled: no
+
+# Capture settings
+capture:
+  disable-offloading: true
+
+# CPU affinity
+runmode: workers
+
+# Checksum validation
+host-mode: auto
