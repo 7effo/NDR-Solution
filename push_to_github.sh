@@ -3,7 +3,7 @@
 # Configuration
 REMOTE_NAME="NDR-Solution" # Updated to point to NDR-Solution repo
 BRANCH_NAME="main"
-COMMIT_MSG="ThunderX NDR Update: Phase 1-6 Complete"
+COMMIT_MSG="ThunderX NDR Update: Phases 1-10 Complete (Logo & Polish)"
 
 # 1. Check if git is initialized
 if [ ! -d ".git" ]; then
